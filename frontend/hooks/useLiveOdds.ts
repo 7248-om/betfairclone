@@ -1,20 +1,30 @@
 import { useEffect, useState } from "react";
 import { socket } from "../lib/socket";
 
-export function useLiveOdds(
-  matchId: string | null,
-  runnerId: string | null,
-  initialOdds: number | null
-) {
-  const [liveOdds, setLiveOdds] = useState<number | null>(initialOdds);
+export interface RunnerOdds {
+  back: number | null;
+  lay: number | null;
+}
+
+export interface LiveOddsState {
+  [runnerId: string]: RunnerOdds;
+}
+
+export function useLiveOdds(matchId: string | null) {
+  const [liveOdds, setLiveOdds] = useState<LiveOddsState>({});
   const [isLocked, setIsLocked] = useState<boolean>(false);
 
   useEffect(() => {
-    // Reset state when new match/runner is passed
-    setLiveOdds(initialOdds);
+    // Reset defaults
+    setLiveOdds({});
     setIsLocked(false);
 
-    if (!matchId || !runnerId) return;
+    if (!matchId) return;
+
+    // Explicitly connect to save backend proxy bandwidth
+    if (!socket.connected) {
+      socket.connect();
+    }
 
     // Join the WebSocket room for this specific match
     socket.emit("joinMatch", matchId);
@@ -31,28 +41,31 @@ export function useLiveOdds(
         setIsLocked(false);
       }
 
-      // Update actual odds if available
+      // Extract the Back/Lay prices into an object mapping
       if (market.runners) {
-        const runner = market.runners.find(
-          (r: any) => r.selectionId.toString() === runnerId.toString()
-        );
-
-        if (runner?.ex?.availableToBack?.[0]?.price) {
-          setLiveOdds(runner.ex.availableToBack[0].price);
-        } else if (runner?.status === "REMOVED") {
-          setIsLocked(true);
-        }
+        const newOddsState: LiveOddsState = {};
+        market.runners.forEach((runner: any) => {
+          const back = runner?.ex?.availableToBack?.[0]?.price || null;
+          const lay = runner?.ex?.availableToLay?.[0]?.price || null;
+          newOddsState[runner.selectionId.toString()] = { back, lay };
+          
+          if (runner?.status === "REMOVED") {
+            setIsLocked(true);
+          }
+        });
+        setLiveOdds(newOddsState);
       }
     };
 
     socket.on("oddsUpdate", handleOddsUpdate);
 
     return () => {
-      // Cleanup listener and leave room to save bandwidth and API limits
+      // Cleanup listener and properly disconnect everything when going stale
       socket.off("oddsUpdate", handleOddsUpdate);
       socket.emit("leaveMatch", matchId);
+      socket.disconnect(); 
     };
-  }, [matchId, runnerId, initialOdds]);
+  }, [matchId]);
 
   return { liveOdds, isLocked };
 }

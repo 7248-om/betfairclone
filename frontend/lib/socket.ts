@@ -5,7 +5,7 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 // Export a singleton socket instance
 export const socket: Socket = io(SOCKET_URL, {
-  autoConnect: true,
+  autoConnect: false, // CRITICAL: wait until requested to save bandwidth
   // Make sure to include credentials if cookie-based sessions are used
   withCredentials: true,
 });

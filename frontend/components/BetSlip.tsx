@@ -8,6 +8,7 @@ interface BetSlipProps {
   matchName: string | null;
   runnerId: string | null;
   runnerName: string | null;
+  type?: "BACK" | "LAY" | null;
   odds: number | null;
   onClose: () => void;
 }
@@ -17,12 +18,17 @@ export default function BetSlip({
   matchName,
   runnerId,
   runnerName,
+  type,
   odds,
   onClose,
 }: BetSlipProps) {
   const { user } = useAuthStore();
   const { placeBet, isPlacing, error: betError } = usePlaceBet();
-  const { liveOdds, isLocked } = useLiveOdds(matchId, runnerId, odds);
+  const { liveOdds, isLocked } = useLiveOdds(matchId);
+
+  const currentLiveOdds = (runnerId && liveOdds && liveOdds[runnerId]) 
+    ? (type === "LAY" ? liveOdds[runnerId].lay : liveOdds[runnerId].back) 
+    : null;
 
   const [stake, setStake] = useState<string>("");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -35,21 +41,21 @@ export default function BetSlip({
     setSuccessMsg(null);
     setPrevOdds(odds);
     setFlashColor(null);
-  }, [matchId, runnerId, odds]);
+  }, [matchId, runnerId, type, odds]);
 
   // Flash color effect when liveOdds change
   useEffect(() => {
-    if (liveOdds !== null && prevOdds !== null && liveOdds !== prevOdds) {
-      setFlashColor(liveOdds > prevOdds ? "up" : "down");
+    if (currentLiveOdds !== null && prevOdds !== null && currentLiveOdds !== prevOdds) {
+      setFlashColor(currentLiveOdds > prevOdds ? "up" : "down");
       const timer = setTimeout(() => {
         setFlashColor(null);
       }, 500);
-      setPrevOdds(liveOdds);
+      setPrevOdds(currentLiveOdds);
       return () => clearTimeout(timer);
-    } else if (liveOdds !== null && prevOdds === null) {
-      setPrevOdds(liveOdds);
+    } else if (currentLiveOdds !== null && prevOdds === null) {
+      setPrevOdds(currentLiveOdds);
     }
-  }, [liveOdds, prevOdds]);
+  }, [currentLiveOdds, prevOdds]);
 
   if (!matchId || !runnerId) return null;
 
@@ -72,8 +78,8 @@ export default function BetSlip({
     }
   };
 
-  const currentOdds = liveOdds ?? odds;
-  const potentialPayout = (Number(stake || 0) * (currentOdds || 0)).toFixed(2);
+  const displayOdds = currentLiveOdds ?? odds;
+  const potentialPayout = (Number(stake || 0) * (displayOdds || 0)).toFixed(2);
   const risk = Number(stake || 0).toFixed(2);
   
   // Chip configuration based on user preferences or fallbacks
@@ -118,7 +124,7 @@ export default function BetSlip({
                     : "bg-transparent text-[var(--text-primary)]"
                 }`}
               >
-                {isLocked ? "SUSPENDED" : currentOdds?.toFixed(2) || "N/A"}
+                {isLocked ? "SUSP" : displayOdds?.toFixed(2) || "N/A"}
               </div>
             </div>
           </div>
