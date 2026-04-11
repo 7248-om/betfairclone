@@ -59,7 +59,8 @@
 
 "use strict";
 
-// TODO: npm install axios https-proxy-agent
+const axios = require("axios");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 
 /**
  * Fetches a list of live and upcoming events for a given sport from Betfair.
@@ -83,8 +84,52 @@ const fetchLiveMatches = async (eventTypeId) => {
  * @returns {Promise<Object>} - Raw Betfair market book data with prices.
  */
 const fetchMarketOdds = async (marketId) => {
-  // TODO: Implement using listMarketBook endpoint
-  throw new Error("betfairProxy.fetchMarketOdds() is not yet implemented.");
+  try {
+    const proxyUrl = process.env.UK_PROXY_URL;
+    if (!proxyUrl) {
+      console.error("[BetfairProxy] UK_PROXY_URL is missing. Aborting fetch to avoid IP exposure.");
+      return null; // Fail-closed requirement
+    }
+
+    const proxyAgent = new HttpsProxyAgent(proxyUrl);
+
+    const betfairClient = axios.create({
+      baseURL: "https://api.betfair.com/exchange/betting/json-rpc/v1",
+      headers: {
+        "X-Application": process.env.BETFAIR_APP_KEY || "",
+        "X-Authentication": process.env.BETFAIR_SESSION_TOKEN || "",
+        "Content-Type": "application/json"
+      },
+      httpsAgent: proxyAgent,
+      timeout: 5000 // Ensure we don't stall the poller indefinitely
+    });
+
+    const payload = {
+      jsonrpc: "2.0",
+      method: "SportsAPING/v1.0/listMarketBook",
+      params: {
+        marketIds: [marketId],
+        priceProjection: {
+          priceData: ["EX_BEST_OFFERS"],
+          virtualise: true
+        }
+      },
+      id: 1
+    };
+
+    const response = await betfairClient.post("", payload);
+
+    if (response.data && response.data.error) {
+      console.error("[BetfairProxy] API returned error:", response.data.error);
+      return null;
+    }
+
+    return response.data.result;
+  } catch (error) {
+    console.error(`[BetfairProxy] Proxy connection failed or timed out for market ${marketId}. Error: ${error.message}`);
+    // CRITICAL "FAIL-CLOSED" REQUIREMENT: NEVER attempt to retry with native IP address.
+    return null;
+  }
 };
 
 /**

@@ -15,7 +15,11 @@
 "use strict";
 
 const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 const cors = require("cors");
+const liveOddsSocket = require("./sockets/liveOdds");
+const { startLivePoller } = require("./services/livePoller");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize"); // NEW: Prevent NoSQL injection
 const rateLimit = require("express-rate-limit");
@@ -132,10 +136,34 @@ app.use((err, req, res, next) => {
 // ============================================================
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+// Create HTTP Server wrap around Express App
+const server = http.createServer(app);
+
+// Attach Socket.io to the HTTP Server
+const io = new Server(server, {
+  cors: {
+    origin:
+      process.env.NODE_ENV === "production"
+        ? process.env.FRONTEND_URL
+        : ["http://localhost:3000"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  },
+});
+
+// Initialize socket handlers
+liveOddsSocket(io);
+
+// Start the Smart Poller
+if (process.env.NODE_ENV !== "test") {
+  startLivePoller(io);
+}
+
+// Start HTTP server instead of plain express app
+server.listen(PORT, () => {
   console.log(
     `✅ Stake Clone API Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`
   );
 });
 
-module.exports = app;
+module.exports = server;
