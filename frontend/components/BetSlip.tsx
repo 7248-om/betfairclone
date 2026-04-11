@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { usePlaceBet } from "../hooks/usePlaceBet";
+import { useLiveOdds } from "../hooks/useLiveOdds";
 
 interface BetSlipProps {
   matchId: string | null;
@@ -21,15 +22,34 @@ export default function BetSlip({
 }: BetSlipProps) {
   const { user } = useAuthStore();
   const { placeBet, isPlacing, error: betError } = usePlaceBet();
+  const { liveOdds, isLocked } = useLiveOdds(matchId, runnerId, odds);
 
   const [stake, setStake] = useState<string>("");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [flashColor, setFlashColor] = useState<"up" | "down" | null>(null);
+  const [prevOdds, setPrevOdds] = useState<number | null>(odds);
 
   // Auto-clear states when a new selection is passed in
   useEffect(() => {
     setStake("");
     setSuccessMsg(null);
-  }, [matchId, runnerId]);
+    setPrevOdds(odds);
+    setFlashColor(null);
+  }, [matchId, runnerId, odds]);
+
+  // Flash color effect when liveOdds change
+  useEffect(() => {
+    if (liveOdds !== null && prevOdds !== null && liveOdds !== prevOdds) {
+      setFlashColor(liveOdds > prevOdds ? "up" : "down");
+      const timer = setTimeout(() => {
+        setFlashColor(null);
+      }, 500);
+      setPrevOdds(liveOdds);
+      return () => clearTimeout(timer);
+    } else if (liveOdds !== null && prevOdds === null) {
+      setPrevOdds(liveOdds);
+    }
+  }, [liveOdds, prevOdds]);
 
   if (!matchId || !runnerId) return null;
 
@@ -52,7 +72,8 @@ export default function BetSlip({
     }
   };
 
-  const potentialPayout = (Number(stake || 0) * (odds || 0)).toFixed(2);
+  const currentOdds = liveOdds ?? odds;
+  const potentialPayout = (Number(stake || 0) * (currentOdds || 0)).toFixed(2);
   const risk = Number(stake || 0).toFixed(2);
   
   // Chip configuration based on user preferences or fallbacks
@@ -86,7 +107,19 @@ export default function BetSlip({
             </div>
             <div className="text-right">
               <p className="text-xs text-[var(--text-secondary)]">Odds</p>
-              <p className="text-xl font-bold font-mono text-[var(--text-primary)]">{odds?.toFixed(2) || "N/A"}</p>
+              <div 
+                className={`text-xl font-bold font-mono px-2 py-1 rounded transition-colors duration-500 ${
+                  flashColor === "up"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : flashColor === "down"
+                    ? "bg-red-100 text-red-700"
+                    : isLocked
+                    ? "text-red-500"
+                    : "bg-transparent text-[var(--text-primary)]"
+                }`}
+              >
+                {isLocked ? "SUSPENDED" : currentOdds?.toFixed(2) || "N/A"}
+              </div>
             </div>
           </div>
         </div>
@@ -160,10 +193,10 @@ export default function BetSlip({
         {user ? (
           <button
             onClick={handlePlaceBet}
-            disabled={isPlacing || !!successMsg || !stake || Number(stake) <= 0 || Number(stake) > user.balance}
+            disabled={isPlacing || !!successMsg || isLocked || !stake || Number(stake) <= 0 || Number(stake) > user.balance}
             className={`w-full py-3 rounded uppercase tracking-wider font-bold transition-all shadow-md text-sm ${
-              isPlacing
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+              isPlacing || isLocked
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed border border-gray-400"
                 : successMsg
                 ? "bg-emerald-500 text-white"
                 : Number(stake) > user.balance
@@ -171,7 +204,7 @@ export default function BetSlip({
                 : "bg-[var(--teal)] hover:opacity-90 text-[var(--bg-primary)] shadow-[var(--teal-muted)] hover:shadow-md"
             }`}
           >
-            {isPlacing ? "Placing..." : successMsg ? "Done!" : Number(stake) > user.balance ? "Insufficient Balance" : "Place Bet"}
+            {isPlacing ? "Placing..." : successMsg ? "Done!" : isLocked ? "Market Suspended" : Number(stake) > user.balance ? "Insufficient Balance" : "Place Bet"}
           </button>
         ) : (
           <button disabled className="w-full py-3 bg-gray-200 text-gray-500 rounded font-bold uppercase transition-colors">
