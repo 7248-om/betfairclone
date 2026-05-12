@@ -226,53 +226,77 @@ export default function ClientAccountPage() {
                   <table className="w-full text-sm text-left border-collapse border border-slate-200">
                     <thead className="bg-[#00A5B5] text-white">
                       <tr>
-                        <th className="px-3 py-2 border border-slate-200">Market</th>
+                        <th className="px-3 py-2 border border-slate-200">Date</th>
+                        <th className="px-3 py-2 border border-slate-200">Bet ID</th>
                         <th className="px-3 py-2 border border-slate-200">Selection</th>
-                        <th className="px-3 py-2 border border-slate-200">Type</th>
                         <th className="px-3 py-2 border border-slate-200 text-right">Odds</th>
                         <th className="px-3 py-2 border border-slate-200 text-right">Stake</th>
+                        <th className="px-3 py-2 border border-slate-200 text-right">Winnings</th>
                         <th className="px-3 py-2 border border-slate-200 text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      {data?.map((bet: any) => (
-                        <tr key={bet._id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2 border border-slate-200">
-                            <span className="font-semibold block">{bet.match?.eventName || "Deleted Match"}</span>
-                            <span className="text-xs text-slate-500">{new Date(bet.createdAt).toLocaleString()}</span>
-                          </td>
-                          <td className="px-3 py-2 border border-slate-200 font-bold text-slate-800">
-                            {bet.selectedRunnerName}
-                          </td>
-                          <td className="px-3 py-2 border border-slate-200 text-center">
-                             <span className="bg-[#C5DBE7] text-slate-800 px-2 py-0.5 rounded text-xs font-bold">BACK</span>
-                          </td>
-                          <td className="px-3 py-2 border border-slate-200 text-right font-mono font-bold">
-                            {bet.oddsAtPlacement}
-                          </td>
-                          <td className="px-3 py-2 border border-slate-200 text-right font-mono font-bold">
-                            {bet.stake}
-                          </td>
-                          <td className="px-3 py-2 border border-slate-200 text-center">
-                            {bet.status === "OPEN" ? (
-                              <span className="text-blue-600 font-bold text-xs uppercase bg-blue-100 px-2 py-1 rounded">Open</span>
-                            ) : bet.status === "WON" ? (
-                              <span className="text-emerald-600 font-bold text-xs uppercase bg-emerald-100 px-2 py-1 rounded">Won</span>
-                            ) : bet.status === "LOST" ? (
-                              <span className="text-red-600 font-bold text-xs uppercase bg-red-100 px-2 py-1 rounded">Lost</span>
-                            ) : (
-                              <span className="text-slate-600 font-bold text-xs uppercase bg-slate-100 px-2 py-1 rounded">{bet.status}</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                      {data?.map((bet: any) => {
+                        // Build selection summary from bcSelections array
+                        const selectionLabel =
+                          bet.bcSelections?.length > 0
+                            ? bet.bcSelections
+                                .map((s: any) =>
+                                  [s.EventName, s.MarketName, s.RunnerName].filter(Boolean).join(" › ")
+                                )
+                                .join(" | ")
+                            : `Bet #${bet.bcBetId}`;
+
+                        return (
+                          <tr key={bet._id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2 border border-slate-200 text-xs text-slate-500 whitespace-nowrap">
+                              {new Date(bet.createdAt).toLocaleString()}
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200">
+                              <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">
+                                #{bet.bcBetId}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200 font-medium text-slate-800 text-xs max-w-[200px]">
+                              <span title={selectionLabel} className="line-clamp-2">
+                                {selectionLabel}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200 text-right font-mono font-bold text-blue-700">
+                              {bet.bcTotalPrice != null ? Number(bet.bcTotalPrice).toFixed(2) : "—"}
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200 text-right font-mono font-bold">
+                              {Number(bet.bcAmount || 0).toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200 text-right font-mono font-bold text-emerald-600">
+                              {bet.bcAmountPaid > 0 ? `+${Number(bet.bcAmountPaid).toFixed(2)}` : "—"}
+                            </td>
+                            <td className="px-3 py-2 border border-slate-200 text-center">
+                              {bet.status === "OPEN" ? (
+                                <span className="text-blue-600 font-bold text-xs uppercase bg-blue-100 px-2 py-1 rounded">Open</span>
+                              ) : bet.status === "WON" ? (
+                                <span className="text-emerald-600 font-bold text-xs uppercase bg-emerald-100 px-2 py-1 rounded">Won</span>
+                              ) : bet.status === "LOST" ? (
+                                <span className="text-red-600 font-bold text-xs uppercase bg-red-100 px-2 py-1 rounded">Lost</span>
+                              ) : bet.status === "RETURNED" ? (
+                                <span className="text-amber-600 font-bold text-xs uppercase bg-amber-100 px-2 py-1 rounded">Returned</span>
+                              ) : bet.status === "CASHED_OUT" ? (
+                                <span className="text-purple-600 font-bold text-xs uppercase bg-purple-100 px-2 py-1 rounded">Cashed Out</span>
+                              ) : (
+                                <span className="text-slate-600 font-bold text-xs uppercase bg-slate-100 px-2 py-1 rounded">{bet.status}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {!data?.length && (
-                        <tr><td colSpan={6} className="text-center py-8 text-slate-500">No bets found.</td></tr>
+                        <tr><td colSpan={7} className="text-center py-8 text-slate-500">No bets found.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               )}
+
 
               {/* TAB: SET STAKE */}
               {activeTab === "stake" && (

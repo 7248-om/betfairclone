@@ -1,31 +1,38 @@
 /**
  * @file server.js
- * @description Main entry point for the Stake Clone backend API server.
+ * @description Main entry point for the backend API server.
  *
- * Architecture Overview:
- * - This server manages TWO completely separate data streams:
- *   1. INTERNAL: The Virtual Coin economy (users, bets, balances) stored in MongoDB.
- *   2. EXTERNAL: Live sports data fetched from Betfair API via a UK proxy (services/betfairProxy.js).
+ * ============================================================
+ * ARCHITECTURE (BetConstruct Provider Model)
+ * ============================================================
+ * This server is now a "Wallet API" for the BetConstruct (BC) AGP system.
+ * BetConstruct handles all betting UI via an embedded iFrame.
+ * BC's backend calls OUR /api/bc/* endpoints to:
+ *   - Verify user sessions      (GetClientDetails)
+ *   - Read user balance         (GetClientBalance)
+ *   - Debit balance on bet      (BetPlaced)
+ *   - Credit winnings           (BetResulted)
+ *   - Reverse failed bets       (Rollback)
  *
- * The Betfair data is READ-ONLY from this server's perspective. It is fetched,
- * cached in MongoDB (Match model), and then presented to the frontend.
- * No real money or real accounts are created anywhere in this system.
+ * ALL Betfair polling logic, Socket.io live odds, and the settlement
+ * cron job have been REMOVED. Settlement is now driven by BC webhooks.
+ *
+ * Internal systems retained:
+ *   - 3-tier user hierarchy     (MAIN / MASTER / CLIENT)
+ *   - Virtual coin economy      (balance, Transaction ledger)
+ *   - JWT auth for our own UI   (admin/master/client dashboards)
  */
 
 "use strict";
 
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
-const liveOddsSocket = require("./sockets/liveOdds");
-const { startLivePoller } = require("./services/livePoller");
-const helmet = require("helmet");
-const mongoSanitize = require("express-mongo-sanitize"); // NEW: Prevent NoSQL injection
-const rateLimit = require("express-rate-limit");
-const dotenv = require("dotenv");
-const connectDB = require("./config/db");
-const { startSettlementCron } = require("./cron/settlementJob"); // NEW: Background payouts
+const express        = require("express");
+const http           = require("http");
+const cors           = require("cors");
+const helmet         = require("helmet");
+const mongoSanitize  = require("express-mongo-sanitize");
+const rateLimit      = require("express-rate-limit");
+const dotenv         = require("dotenv");
+const connectDB      = require("./config/db");
 
 // --- Load Environment Variables ---
 dotenv.config();
@@ -40,16 +47,16 @@ const app = express();
 // SECTION 1: CORE SECURITY MIDDLEWARE
 // ============================================================
 
-// Helmet sets secure HTTP response headers (prevents XSS, clickjacking, etc.)
+// Secure HTTP response headers
 app.use(helmet());
 
-// CORS: Restrict which origins can call this API.
+// CORS — frontend origin only (BC calls us server-to-server, no CORS needed for /api/bc)
 const corsOptions = {
   origin:
     process.env.NODE_ENV === "production"
       ? process.env.FRONTEND_URL
       : ["http://localhost:3000"],
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  methods:       ["GET", "POST", "PUT", "PATCH", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 app.use(cors(corsOptions));
@@ -57,71 +64,64 @@ app.use(cors(corsOptions));
 // Parse incoming JSON request bodies
 app.use(express.json());
 
-// Sanitize user-supplied data to prevent MongoDB Operator Injection
+// Sanitize user-supplied data — prevents MongoDB Operator Injection
 app.use(mongoSanitize());
 
-// Global Rate Limiter: Prevents brute-force and DoS attacks.
+// Global rate limiter — prevents brute-force and DoS attacks
+// NOTE: BC may send bursts on peak traffic; consider a separate higher-limit
+// rule for the /api/bc prefix in production.
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  windowMs:       15 * 60 * 1000, // 15 minutes
+  max:            300,
   standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
+  legacyHeaders:  false,
+  message:        { error: "Too many requests, please try again later." },
 });
 app.use(limiter);
 
 // ============================================================
 // SECTION 2: API ROUTES
 // ============================================================
-// Routes are organized by the 3-tier user hierarchy.
 
 // ---- Authentication (all tiers) ----
-app.use('/api/auth', require('./routes/auth'));
+app.use("/api/auth", require("./routes/auth"));
 
-// ---- CLIENT tier ----
+// ---- CLIENT tier (account statement, bet history, preferences) ----
 app.use("/api/client", require("./routes/client"));
 
-// ---- MASTER tier (+ MAIN oversight of masters) ----
+// ---- MASTER tier (agent management) ----
 app.use("/api/master", require("./routes/master"));
 
-// ---- MAIN tier (super admin) ----
-app.use('/api/admin', require('./routes/admin'));
+// ---- MAIN / Admin tier (super admin) ----
+app.use("/api/admin", require("./routes/admin"));
 
-// ---- Match data (Betfair cache) ----
-app.use('/api/matches', require('./routes/matches'));
-
-// ============================================================
-// SECTION 3: BACKGROUND JOBS
-// ============================================================
-
-// Start the autonomous settlement engine (checks for concluded matches and pays out bets)
-if (process.env.NODE_ENV !== "test") {
-  startSettlementCron();
-}
+// ---- BetConstruct Partner API (server-to-server webhooks from BC) ----
+// Secured by IP whitelist + MD5 hash verification (see routes/bcRoutes.js)
+app.use("/api/bc", require("./routes/bcRoutes"));
 
 // ============================================================
-// SECTION 4: HEALTH CHECK
+// SECTION 3: HEALTH CHECK
 // ============================================================
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
-    status: "OK",
-    message: "Stake Clone API is running.",
+    status:      "OK",
+    message:     "API server is running (BetConstruct Provider Model).",
     environment: process.env.NODE_ENV,
-    timestamp: new Date().toISOString(),
+    timestamp:   new Date().toISOString(),
   });
 });
 
 // ============================================================
-// SECTION 5: GLOBAL ERROR HANDLER
+// SECTION 4: GLOBAL ERROR HANDLERS
 // ============================================================
 
-// Catch-all for unmatched routes (404)
+// 404 — unmatched routes
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found." });
 });
 
-// Central error-handling middleware
+// Central error handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error(`[ERROR] ${err.stack}`);
@@ -132,38 +132,17 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================================
-// SECTION 6: START SERVER
+// SECTION 5: START SERVER
 // ============================================================
 
-const PORT = process.env.PORT || 5000;
-
-// Create HTTP Server wrap around Express App
+const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-// Attach Socket.io to the HTTP Server
-const io = new Server(server, {
-  cors: {
-    origin:
-      process.env.NODE_ENV === "production"
-        ? process.env.FRONTEND_URL
-        : ["http://localhost:3000"],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  },
-});
-
-// Initialize socket handlers
-liveOddsSocket(io);
-
-// Start the Smart Poller
-if (process.env.NODE_ENV !== "test") {
-  startLivePoller(io);
-}
-
-// Start HTTP server instead of plain express app
 server.listen(PORT, () => {
   console.log(
-    `✅ Stake Clone API Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`
+    `✅ API Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`
   );
+  console.log("📡 BetConstruct Partner API mounted at /api/bc");
 });
 
 module.exports = server;

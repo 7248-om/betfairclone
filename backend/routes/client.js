@@ -22,17 +22,11 @@ const {
   getUnsettledBets,
   updateStakePreferences,
   changePassword,
-  placeBet,
 } = require("../controllers/clientController");
 
 // Apply auth to ALL routes in this router
 // Only CLIENT accounts can call these endpoints
 router.use(protect, restrictTo("CLIENT"));
-
-// ── Bets ───────────────────────────────────────────────────────────────────────
-
-// POST /api/client/place-bet body: { matchId, runnerId, stake, oddsAtPlacement }
-router.post("/place-bet", placeBet);
 
 // ── Reports ────────────────────────────────────────────────────────────────────
 

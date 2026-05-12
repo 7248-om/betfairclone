@@ -2,9 +2,10 @@
  * @file controllers/clientController.js
  * @description All API endpoints for the CLIENT tier.
  *
- * All routes in this controller are protected (require a valid JWT)
- * and scoped exclusively to the currently logged-in client.
- * A client can NEVER access another user's data through these routes.
+ * NOTE (BetConstruct migration): bet PLACEMENT is now handled by the
+ * BetConstruct iFrame + /api/bc/BetPlaced webhook. The `placeBet`
+ * endpoint has been removed from this controller. The remaining
+ * endpoints provide account reporting and preference management.
  *
  * Routes (defined in routes/client.js):
  *   GET  /api/client/statement               → getStatement
@@ -17,11 +18,10 @@
 
 "use strict";
 
-const mongoose = require("mongoose");
+const mongoose    = require("mongoose");
 const Transaction = require("../models/Transaction");
-const Bet = require("../models/Bet");
-const User = require("../models/User");
-const Match = require("../models/Match");
+const Bet         = require("../models/Bet");
+const User        = require("../models/User");
 
 // ============================================================
 // SECTION 1: ACCOUNT STATEMENT
@@ -222,7 +222,6 @@ const getBetHistory = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("match", "teams sport startTime") // Enrich with match context
         .lean(),
       Bet.countDocuments(query),
     ]);
@@ -255,11 +254,10 @@ const getUnsettledBets = async (req, res) => {
       status: "OPEN",
     })
       .sort({ createdAt: -1 })
-      .populate("match", "teams sport startTime status") // Include match status for In-Play indicator
       .lean();
 
     // Compute total exposure (total amount at risk)
-    const totalExposure = bets.reduce((sum, bet) => sum + bet.stake, 0);
+    const totalExposure = bets.reduce((sum, bet) => sum + (bet.bcAmount || 0), 0);
 
     return res.status(200).json({
       success: true,
@@ -367,124 +365,9 @@ const changePassword = async (req, res) => {
   }
 };
 
-// ============================================================
-// SECTION 7: PLACE A BET (Core Betting Loop)
-// ============================================================
-
-/**
- * POST /api/client/place-bet
- * @desc  Deducts `stake` from balance and records a new Bet.
- *        Wrapped in a MongoDB transaction for strict financial atomicity.
- * @access Private (CLIENT)
- *
- * Body: { matchId, runnerId, stake, oddsAtPlacement }
- */
-const placeBet = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { matchId, runnerId, stake } = req.body;
-    let oddsAtPlacement = parseFloat(req.body.oddsAtPlacement);
-    const parsedStake = parseFloat(stake);
-
-    // 1. Basic validation
-    if (!mongoose.Types.ObjectId.isValid(matchId)) {
-      throw new Error("Invalid match ID format.");
-    }
-    if (!runnerId || !parsedStake || parsedStake <= 0) {
-      throw new Error("Missing or invalid bet parameters.");
-    }
-
-    // 2. Lock and load the match
-    const match = await Match.findById(matchId).session(session);
-    if (!match) {
-      throw new Error("Match not found.");
-    }
-
-    if (match.status !== "OPEN" && match.status !== "IN_PLAY") {
-      throw new Error(`This market is currently ${match.status}. Bets cannot be placed.`);
-    }
-
-    const selectedRunner = match.runners.find((r) => r.runnerId === runnerId);
-    if (!selectedRunner) {
-      throw new Error("Runner not found in this match.");
-    }
-
-    // Instead of completely trusting the client UI's odds, production systems
-    // might re-query Betfair here or pull the cached `backOdds`. 
-    // To stick to the spec without building an odds engine, we use client-supplied odds
-    // or fallback to the cached ones.
-    if (!oddsAtPlacement || oddsAtPlacement < 1.01) {
-      if (selectedRunner.backOdds) oddsAtPlacement = selectedRunner.backOdds;
-      else throw new Error("Invalid odds specified.");
-    }
-
-    // 3. Atomically test user balance AND deduct it. 
-    // We do NOT do a `findOne` then `save` for balances, to prevent parallel race conditions.
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: req.user._id, balance: { $gte: parsedStake } },
-      { $inc: { balance: -parsedStake } },
-      { new: true, session }
-    );
-
-    if (!updatedUser) {
-      throw new Error("Insufficient virtual coins available.");
-    }
-
-    // 4. Create the formal Bet ledger record
-    const [newBet] = await Bet.create(
-      [
-        {
-          user: req.user._id,
-          match: match._id,
-          selectedRunnerId: selectedRunner.runnerId,
-          selectedRunnerName: selectedRunner.runnerName,
-          stake: parsedStake,
-          oddsAtPlacement: oddsAtPlacement,
-          potentialPayout: parseFloat((parsedStake * oddsAtPlacement).toFixed(2)),
-        },
-      ],
-      { session }
-    );
-
-    // 5. Create the immutable transaction ledger record for the statement
-    await Transaction.create(
-      [
-        {
-          user: req.user._id,
-          type: "BET_PLACED",
-          amount: parsedStake,
-          runningBalance: updatedUser.balance,
-          description: `Backed ${selectedRunner.runnerName} on ${match.eventName}`,
-          referenceId: newBet._id,
-          referenceModel: "Bet",
-        },
-      ],
-      { session }
-    );
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(201).json({
-      success: true,
-      message: "Bet placed successfully.",
-      data: {
-        newBalance: updatedUser.balance,
-        bet: newBet,
-      },
-    });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error("[placeBet]", err.message);
-    // Determine if it's our custom thrown error or a mongoose error
-    return res.status(400).json({ error: err.message || "Failed to place bet. Please try again." });
-  }
-};
-
 // ---- Export all handlers ----
+// NOTE: placeBet has been removed — bet placement is now handled by
+// BetConstruct via the /api/bc/BetPlaced webhook endpoint.
 module.exports = {
   getStatement,
   getProfitLoss,
@@ -492,5 +375,4 @@ module.exports = {
   getUnsettledBets,
   updateStakePreferences,
   changePassword,
-  placeBet,
 };
