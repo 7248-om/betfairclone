@@ -1,9 +1,16 @@
+"use client";
+
 /**
  * @component DashboardLayout — Dark Teal theme
+ *
+ * Handles logout centrally so every page gets a working Navbar logout button
+ * without having to wire onLogout individually.
  */
 
+import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
+import { useAuthStore } from "@/store/useAuthStore";
 
 type AccountType = "MAIN" | "MASTER" | "CLIENT";
 
@@ -13,7 +20,6 @@ interface DashboardLayoutProps {
   username: string;
   balance: number;
   exposure?: number;
-  onLogout?: () => void;
 }
 
 export default function DashboardLayout({
@@ -22,11 +28,24 @@ export default function DashboardLayout({
   username,
   balance,
   exposure,
-  onLogout,
 }: DashboardLayoutProps) {
+  const router = useRouter();
+  const { logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--bg-primary)", color: "var(--text-primary)" }}>
-      <Navbar accountType={accountType} username={username} balance={balance} exposure={exposure} onLogout={onLogout} />
+      <Navbar
+        accountType={accountType}
+        username={username}
+        balance={balance}
+        exposure={exposure}
+        onLogout={handleLogout}
+      />
       <Sidebar accountType={accountType} />
 
       {/* Main content: offset for navbar (h-12) and sidebar (w-48) */}
