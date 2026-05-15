@@ -34,6 +34,11 @@
 
 "use strict";
 
+// Built-in Node.js crypto — used by Casino Integration API 3.1.4 (SHA256).
+// No extra npm install required.
+const crypto = require("crypto");
+
+// MD5 — used by Sports Partner API v0.40.
 const md5 = require("md5");
 
 // ============================================================
@@ -128,9 +133,56 @@ const verifyTimestamp = (ts) => {
   return { valid: true };
 };
 
+// ============================================================
+// computeCasinoHash  — Casino Integration API 3.1.4
+// ============================================================
+/**
+ * Builds the SHA256 PublicKey used by the BetConstruct Casino API.
+ *
+ * Formula (from Casino Integration API 3.1.4 spec):
+ *   PublicKey = SHA256(MessageJsonBody + CasinoSharedKey)
+ *
+ * Where:
+ *   - MessageJsonBody is the EXACT raw JSON string BC sent in the request
+ *     body (captured via the express.json verify callback as req.rawBody).
+ *   - CasinoSharedKey is the secret assigned in the BC Casino back-office
+ *     (stored in process.env.BC_CASINO_SHARED_KEY).
+ *
+ * @param {string} rawJsonBodyString - req.rawBody set by express.json verify.
+ * @param {string} casinoSharedKey  - BC_CASINO_SHARED_KEY from env.
+ * @returns {string}                 - Lowercase hex SHA256 digest.
+ */
+const computeCasinoHash = (rawJsonBodyString, casinoSharedKey) => {
+  const input = rawJsonBodyString + casinoSharedKey;
+  return crypto.createHash("sha256").update(input, "utf8").digest("hex").toLowerCase();
+};
+
+// ============================================================
+// verifyCasinoHash  — Casino Integration API 3.1.4
+// ============================================================
+/**
+ * Computes the expected Casino SHA256 hash and compares it to the one
+ * received from BetConstruct (usually in the request body as `PublicKey`
+ * or a custom header — check your BC Casino back-office for exact placement).
+ *
+ * @param {string} rawJsonBodyString  - req.rawBody from express.json verify.
+ * @param {string} receivedPublicKey  - Hash value sent by BC in the request.
+ * @param {string} casinoSharedKey   - BC_CASINO_SHARED_KEY from env.
+ * @returns {boolean}                 - true if hashes match.
+ */
+const verifyCasinoHash = (rawJsonBodyString, receivedPublicKey, casinoSharedKey) => {
+  const expected = computeCasinoHash(rawJsonBodyString, casinoSharedKey);
+  const received = (receivedPublicKey || "").toLowerCase();
+  return expected === received;
+};
+
 module.exports = {
+  // ── Sports Partner API v0.40 (MD5) ──
   computeHash,
   verifyHash,
   verifyTimestamp,
   HASH_PARAM_ORDERS,
+  // ── Casino Integration API 3.1.4 (SHA256) ──
+  computeCasinoHash,
+  verifyCasinoHash,
 };

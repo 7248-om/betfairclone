@@ -61,8 +61,18 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Parse incoming JSON request bodies
-app.use(express.json());
+// Parse incoming JSON request bodies.
+// The `verify` callback captures the raw UTF-8 buffer BEFORE Express parses
+// it into req.body. This is required by the Casino Integration API 3.1.4 so
+// that the SHA256 PublicKey can be recomputed over the exact bytes BC sent.
+// Sports Partner API v0.40 endpoints are unaffected — they read req.body normally.
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf.toString("utf8");
+    },
+  })
+);
 
 // Sanitize user-supplied data — prevents MongoDB Operator Injection
 app.use(mongoSanitize());
@@ -96,8 +106,12 @@ app.use("/api/master", require("./routes/master"));
 app.use("/api/admin", require("./routes/admin"));
 
 // ---- BetConstruct Partner API (server-to-server webhooks from BC) ----
-// Secured by IP whitelist + MD5 hash verification (see routes/bcRoutes.js)
+// Sports Sportsbook: MD5 hash verification  (routes/bcRoutes.js)
 app.use("/api/bc", require("./routes/bcRoutes"));
+
+// ---- BetConstruct Casino Integration API 3.1.4 ----
+// Casino wallet hooks: SHA256 PublicKey verification  (routes/bcCasinoRoutes.js)
+app.use("/api/casino", require("./routes/bcCasinoRoutes"));
 
 // ============================================================
 // SECTION 3: HEALTH CHECK
@@ -142,7 +156,8 @@ server.listen(PORT, () => {
   console.log(
     `✅ API Server running on http://localhost:${PORT} in ${process.env.NODE_ENV || "development"} mode`
   );
-  console.log("📡 BetConstruct Partner API mounted at /api/bc");
+  console.log("📡 BetConstruct Sportsbook Partner API  → /api/bc");
+  console.log("🎰 BetConstruct Casino Integration API  → /api/casino");
 });
 
 module.exports = server;

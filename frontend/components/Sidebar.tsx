@@ -32,13 +32,14 @@ const navItems: Record<AccountType, NavItem[]> = {
     { label: "P&L Report",      href: "/master/pnl",       icon: "📊" },
   ],
   CLIENT: [
-    { label: "In-Play",     href: "/client/dashboard", icon: "🔴", badge: 12 },
-    { label: "Cricket",     href: "/client/cricket",   icon: "🏏" },
-    { label: "Soccer",      href: "/client/soccer",    icon: "⚽" },
-    { label: "Tennis",      href: "/client/tennis",    icon: "🎾" },
-    { label: "Horse",       href: "/client/horse",     icon: "🐎" },
-    { label: "My Bets",     href: "/client/bets",      icon: "📋" },
-    { label: "Account",     href: "/client/account",   icon: "👤" },
+    { label: "In-Play",  href: "/client/dashboard", icon: "🔴", badge: 12 },
+    { label: "Cricket",  href: "/client/cricket",   icon: "🏏" },
+    { label: "Soccer",   href: "/client/soccer",    icon: "⚽" },
+    { label: "Tennis",   href: "/client/tennis",    icon: "🎾" },
+    { label: "Horse",    href: "/client/horse",     icon: "🐎" },
+    { label: "My Bets",  href: "/client/bets",      icon: "📋" },
+    { label: "Casino",   href: "/client/casino",    icon: "🎰" },
+    { label: "Account",  href: "/client/account",   icon: "👤" },
   ],
 };
 
