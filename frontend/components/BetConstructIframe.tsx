@@ -92,16 +92,22 @@ export default function BetConstructIframe({
 
   if (!token) {
     return (
-      <div className={`${className} flex items-center justify-center bg-slate-900`}>
+      <div
+        className={`${className} flex items-center justify-center`}
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
         <div className="text-center space-y-3 p-8">
-          <div className="w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto">
-            <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
+            style={{ backgroundColor: "var(--warning, #f59e0b)20" }}
+          >
+            <svg className="w-6 h-6" style={{ color: "var(--warning, #f59e0b)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <p className="text-amber-400 font-semibold">Session Required</p>
-          <p className="text-slate-400 text-sm">Please log in to access the sportsbook.</p>
+          <p className="font-semibold" style={{ color: "var(--warning, #f59e0b)" }}>Session Required</p>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Please log in to access the sportsbook.</p>
         </div>
       </div>
     );
@@ -109,18 +115,25 @@ export default function BetConstructIframe({
 
   if (isMisconfigured) {
     return (
-      <div className={`${className} flex items-center justify-center bg-slate-900`}>
+      <div
+        className={`${className} flex items-center justify-center`}
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
         <div className="text-center space-y-3 p-8">
-          <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto">
-            <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
+            style={{ backgroundColor: "var(--danger, #ef4444)20" }}
+          >
+            <svg className="w-6 h-6" style={{ color: "var(--danger, #ef4444)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <p className="text-red-400 font-semibold">Configuration Error</p>
-          <p className="text-slate-400 text-sm max-w-xs">
-            <code className="text-red-300">NEXT_PUBLIC_BC_IFRAME_URL</code> is not set.
-            Add it to your <code className="text-slate-300">.env.local</code> file.
+          <p className="font-semibold" style={{ color: "var(--danger, #ef4444)" }}>Configuration Error</p>
+          <p className="text-sm max-w-xs" style={{ color: "var(--text-muted)" }}>
+            <code style={{ color: "var(--danger)" }}>NEXT_PUBLIC_BC_IFRAME_URL</code> is not set.
+            {" "}Add it to your{" "}
+            <code style={{ color: "var(--text-secondary)" }}>.env.local</code> file.
           </p>
         </div>
       </div>

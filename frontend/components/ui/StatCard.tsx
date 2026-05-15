@@ -43,7 +43,7 @@ export default function StatCard({
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold tabular-nums text-white" style={{ color: "var(--text-primary)" }}>{value}</p>
+      <p className="text-2xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{value}</p>
       {trend && (
         <p
           className="text-xs font-medium mt-1.5"

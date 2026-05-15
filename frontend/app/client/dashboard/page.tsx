@@ -36,18 +36,34 @@ import { useAuthStore } from "@/store/useAuthStore";
 
 export default function ClientDashboardPage() {
   const router = useRouter();
-  const { user, token, isAuthenticated } = useAuthStore();
+  const { user, token, isAuthenticated, _hasHydrated } = useAuthStore();
 
-  // Guard: redirect to login if the user is not authenticated.
-  // This runs client-side after hydration.
+  // Guard: only redirect once the persist middleware has finished reading
+  // localStorage. Without _hasHydrated, the redirect fires before the stored
+  // token is loaded, causing a flash-to-login on every page refresh.
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (_hasHydrated && !isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, _hasHydrated, router]);
 
-  // Render nothing while the redirect is in flight
-  if (!isAuthenticated || !user) return null;
+  // Themed loading screen while Zustand's persist middleware hydrates from
+  // localStorage. Returns null previously caused a jarring white flash.
+  if (!isAuthenticated || !user) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
+        <div
+          className="text-sm tracking-widest uppercase opacity-50"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Loading...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DashboardLayout

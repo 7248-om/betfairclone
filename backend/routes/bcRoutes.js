@@ -49,9 +49,10 @@ const verifyBcIp = (req, res, next) => {
     (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
     req.socket.remoteAddress;
 
-  if (!allowedIps.includes(clientIp)) {
+  if (allowedIps.length > 0 && !allowedIps.includes(clientIp)) {
     return res.status(200).json({
-      ErrorCode: "1008",
+      // 1700 = "API wrong access exception" — correct BC spec code for access denial
+      ErrorCode: "1700",
       ErrorText: `Forbidden. IP not whitelisted: ${clientIp}`,
     });
   }

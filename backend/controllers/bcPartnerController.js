@@ -77,7 +77,9 @@ const getClientDetails = async (req, res, next) => {
     const userId = decodeToken(req.body.AuthToken);
     if (!userId) return bcErr(res, "1008", "Invalid AuthToken.");
 
-    const user = await User.findById(userId);
+    // Select only the fields needed by GetClientDetails — avoid pulling all user data
+    const user = await User.findById(userId)
+      .select("username currencyId languageId externalId isActive");
     if (!user)          return bcErr(res, "1008", "User not found.");
     if (!user.isActive) return bcErr(res, "1008", "User account is inactive.");
 
@@ -131,10 +133,11 @@ const betPlaced = async (req, res, next) => {
       return bcErr(res, "500", "Invalid Amount value.");
     }
 
-    // Idempotency — if already processed return current balance
+    // Idempotency — run OUTSIDE the session so BC retries don't waste a
+    // replica-set transaction slot. The unique index on bcTransactionId is
+    // the final safety net at the DB level.
     const existing = await Bet
       .findOne({ bcTransactionId: String(TransactionId) })
-      .session(session)
       .lean();
 
     if (existing) {
@@ -222,7 +225,10 @@ const betResulted = async (req, res, next) => {
   try {
     const { AuthToken, TransactionId, BetId, BetState, Amount } = req.body;
 
-    const incomingAmount = parseFloat(Amount) || 0;
+    // NaN-safe parse: Amount=0 is valid (LOST bet returns zero), Amount="abc" should
+    // not silently produce 0. Use NaN-safe ternary instead of || operator.
+    const parsedAmt      = parseFloat(Amount);
+    const incomingAmount = !isNaN(parsedAmt) ? parsedAmt : 0;
     const newStatus      = BC_STATE_TO_STATUS[parseInt(BetState, 10)] || "OPEN";
 
     const userId = decodeToken(AuthToken);
@@ -237,7 +243,9 @@ const betResulted = async (req, res, next) => {
       return bcErr(res, "1008", "User not found.");
     }
 
-    const bet = await Bet.findOne({ bcBetId: String(BetId) }).session(session);
+    // Scope BetId lookup to the authenticated user to prevent cross-user settlement
+    // if BC misconfigures and sends the same BetId for two different users.
+    const bet = await Bet.findOne({ bcBetId: String(BetId), user: userId }).session(session);
     if (!bet) {
       await session.abortTransaction(); session.endSession();
       return bcErr(res, "500", `Bet BetId ${BetId} not found.`);
@@ -247,8 +255,16 @@ const betResulted = async (req, res, next) => {
     const delta = parseFloat((incomingAmount - (bet.bcAmountPaid || 0)).toFixed(2));
 
     if (delta !== 0) {
-      user.balance = Math.max(0, parseFloat((user.balance + delta).toFixed(2)));
-      await user.save({ session });
+      // Single atomic op: $inc + clamp to 0 via aggregation pipeline update.
+      // Avoids a second findOneAndUpdate that creates an inconsistent intermediate
+      // state (temporarily negative balance) within the same transaction.
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: userId },
+        [{ $set: { balance: { $max: [{ $add: ["$balance", delta] }, 0] } } }],
+        { new: true, session }
+      );
+      const finalBalance = parseFloat(updatedUser.balance.toFixed(2));
+      user.balance = finalBalance;
 
       const txType =
         ["WON", "RETURNED", "CASHED_OUT"].includes(newStatus) ? "BET_WON" :
@@ -258,7 +274,7 @@ const betResulted = async (req, res, next) => {
         user:           user._id,
         type:           txType,
         amount:         Math.abs(delta),
-        runningBalance: user.balance,
+        runningBalance: finalBalance,
         description:    `BC BetResulted — BetId: ${BetId}, TxId: ${TransactionId}, State: ${newStatus}, Δ: ${delta >= 0 ? "+" : ""}${delta}`,
         referenceId:    bet._id,
         referenceModel: "Bet",
@@ -317,10 +333,15 @@ const rollback = async (req, res, next) => {
       return bcErr(res, "605", `Cannot rollback bet with status: ${bet.status}.`);
     }
 
-    // Refund
-    const refund = bet.bcAmount;
-    user.balance  = parseFloat((user.balance + refund).toFixed(2));
-    await user.save({ session });
+    // Atomic $inc for the refund — prevents the same race condition as betResulted.
+    // Two concurrent rollbacks on the same user must not both read the same stale balance.
+    const refund       = bet.bcAmount;
+    const updatedUser  = await User.findOneAndUpdate(
+      { _id: userId },
+      { $inc: { balance: refund } },
+      { new: true, session }
+    );
+    const finalBalance = parseFloat(updatedUser.balance.toFixed(2));
 
     bet.status    = "VOID";
     bet.settledAt = new Date();
@@ -330,14 +351,14 @@ const rollback = async (req, res, next) => {
       user:           user._id,
       type:           "BET_REFUND",
       amount:         refund,
-      runningBalance: user.balance,
+      runningBalance: finalBalance,
       description:    `BC Rollback — TxId: ${TransactionId}`,
       referenceId:    bet._id,
       referenceModel: "Bet",
     }], { session });
 
     await session.commitTransaction(); session.endSession();
-    return bcOk(res, { Balance: parseFloat(user.balance.toFixed(2)) });
+    return bcOk(res, { Balance: finalBalance });
   } catch (err) {
     await session.abortTransaction(); session.endSession();
     next(err);

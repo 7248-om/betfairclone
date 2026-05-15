@@ -77,7 +77,7 @@ function StatusBadge({ status }: { status: BcBet["status"] }) {
 
 export default function ClientBetsPage() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, _hasHydrated } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<"open" | "settled">("open");
   const [bets, setBets] = useState<BcBet[]>([]);
@@ -85,10 +85,10 @@ export default function ClientBetsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Auth guard
+  // Auth guard — wait for hydration before redirecting
   useEffect(() => {
-    if (!isAuthenticated) router.replace("/login");
-  }, [isAuthenticated, router]);
+    if (_hasHydrated && !isAuthenticated) router.replace("/login");
+  }, [isAuthenticated, _hasHydrated, router]);
 
   const fetchBets = useCallback(async (page = 1) => {
     setLoading(true);

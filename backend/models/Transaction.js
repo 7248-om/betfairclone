@@ -18,6 +18,12 @@
  *   BET_PLACED    → Stake deducted from balance when bet is placed
  *   BET_WON       → Winnings credited to balance after settlement
  *   BET_REFUND    → Full stake returned (VOID bet settlement)
+ *
+ * externalTxId Field:
+ *   Stores the BC-issued TransactionId for Casino API 3.1.4 operations.
+ *   Sparse-indexed so null values (Sports bets, transfers) are excluded
+ *   from the index, keeping it compact. Used as the primary idempotency
+ *   key instead of a full-table $regex scan on `description`.
  */
 
 "use strict";
@@ -81,8 +87,21 @@ const transactionSchema = new mongoose.Schema(
 
     // ---- Reference model hint (for manual population) ----
     referenceModel: {
-      type: String,
-      enum: ["Bet", "User", null],
+      type:    String,
+      enum:    ["Bet", "User", "Casino", null],
+      default: null,
+    },
+
+    // ---- External transaction identifier (Casino API 3.1.4 idempotency) ----
+    // Stores BC's TransactionId for Deposit, Withdraw, and Rollback calls.
+    // Sparse index: only Casino transactions carry this value, so null entries
+    // (Sports bets, transfers) are excluded from the index — keeps it small.
+    // Used instead of a $regex scan on `description` for O(log n) lookups.
+    externalTxId: {
+      type:   String,
+      unique: true,   // C-1 FIX: enforce idempotency at DB level; prevents double-processing on BC retries
+      index:  true,
+      sparse: true,
       default: null,
     },
   },

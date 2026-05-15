@@ -77,40 +77,43 @@ app.use(
 // Sanitize user-supplied data — prevents MongoDB Operator Injection
 app.use(mongoSanitize());
 
-// Global rate limiter — prevents brute-force and DoS attacks
-// NOTE: BC may send bursts on peak traffic; consider a separate higher-limit
-// rule for the /api/bc prefix in production.
+// Rate limiter — applied ONLY to user-facing routes below.
+// BetConstruct's server-to-server webhooks (/api/bc, /api/casino) are intentionally
+// EXCLUDED: BC may fire rapid bursts during peak traffic (e.g., many concurrent
+// game rounds settling), and a 429 response would break the wallet API contract.
 const limiter = rateLimit({
-  windowMs:       15 * 60 * 1000, // 15 minutes
-  max:            300,
+  windowMs:        15 * 60 * 1000, // 15-minute sliding window
+  max:             300,             // max 300 requests per window per IP
   standardHeaders: true,
-  legacyHeaders:  false,
-  message:        { error: "Too many requests, please try again later." },
+  legacyHeaders:   false,
+  message:         { error: "Too many requests, please try again later." },
 });
-app.use(limiter);
+// NOTE: Do NOT add app.use(limiter) here — mount it per route below.
 
 // ============================================================
 // SECTION 2: API ROUTES
 // ============================================================
 
-// ---- Authentication (all tiers) ----
-app.use("/api/auth", require("./routes/auth"));
+// ---- Authentication (all tiers) — rate-limited: prevents brute-force login ----
+app.use("/api/auth",   limiter, require("./routes/auth"));
 
 // ---- CLIENT tier (account statement, bet history, preferences) ----
-app.use("/api/client", require("./routes/client"));
+app.use("/api/client", limiter, require("./routes/client"));
 
 // ---- MASTER tier (agent management) ----
-app.use("/api/master", require("./routes/master"));
+app.use("/api/master", limiter, require("./routes/master"));
 
 // ---- MAIN / Admin tier (super admin) ----
-app.use("/api/admin", require("./routes/admin"));
+app.use("/api/admin",  limiter, require("./routes/admin"));
 
-// ---- BetConstruct Partner API (server-to-server webhooks from BC) ----
-// Sports Sportsbook: MD5 hash verification  (routes/bcRoutes.js)
-app.use("/api/bc", require("./routes/bcRoutes"));
+// ---- BetConstruct Sportsbook Partner API (server-to-server webhooks) ----
+// NO rate limiter — BC webhook bursts must not be blocked with 429 responses.
+// Security is handled by IP whitelist + MD5 hash verification in bcRoutes.js.
+app.use("/api/bc",     require("./routes/bcRoutes"));
 
-// ---- BetConstruct Casino Integration API 3.1.4 ----
-// Casino wallet hooks: SHA256 PublicKey verification  (routes/bcCasinoRoutes.js)
+// ---- BetConstruct Casino Integration API 3.1.4 (server-to-server webhooks) ----
+// NO rate limiter — same reasoning as /api/bc above.
+// Security: IP whitelist + SHA256 PublicKey verification in bcCasinoRoutes.js.
 app.use("/api/casino", require("./routes/bcCasinoRoutes"));
 
 // ============================================================

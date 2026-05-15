@@ -136,7 +136,12 @@ function FallbackBox({
   body: React.ReactNode;
 }) {
   return (
-    <div className={`${className} flex items-center justify-center bg-slate-900`}>
+    // Outer wrapper: uses app background so no harsh colour clash with the
+    // surrounding DashboardLayout, regardless of light/dark theme mode.
+    <div
+      className={`${className} flex items-center justify-center`}
+      style={{ backgroundColor: "var(--bg-primary)" }}
+    >
       <div className="text-center space-y-3 p-8">
         <div
           className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
@@ -147,7 +152,8 @@ function FallbackBox({
           </svg>
         </div>
         <p className="font-semibold" style={{ color: iconColor }}>{title}</p>
-        <div className="text-slate-400 text-sm">{body}</div>
+        {/* Body text inherits the app's muted text colour */}
+        <div className="text-sm" style={{ color: "var(--text-muted)" }}>{body}</div>
       </div>
     </div>
   );
@@ -180,7 +186,7 @@ export default function CasinoIframe({
     return (
       <FallbackBox
         className={className}
-        iconColor="#f59e0b"
+        iconColor="var(--warning, #f59e0b)"
         iconPath="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
         title="Session Required"
         body="Please log in to access the casino."
@@ -193,13 +199,15 @@ export default function CasinoIframe({
     return (
       <FallbackBox
         className={className}
-        iconColor="#ef4444"
+        iconColor="var(--danger, #ef4444)"
         iconPath="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
         title="Configuration Error"
         body={
           <>
-            <code className="text-red-300">NEXT_PUBLIC_BC_CASINO_IFRAME_URL</code> is not set.
-            Add it to your <code className="text-slate-300">.env.local</code> file.
+            {/* CSS var colours so the error msg respects the app theme */}
+            <code style={{ color: "var(--danger)" }}>NEXT_PUBLIC_BC_CASINO_IFRAME_URL</code> is not set.
+            {" "}Add it to your{" "}
+            <code style={{ color: "var(--text-secondary)" }}>.env.local</code> file.
           </>
         }
       />

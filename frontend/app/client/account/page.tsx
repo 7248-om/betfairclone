@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuthStore } from "@/store/useAuthStore";
 import { api } from "@/lib/api";
@@ -8,19 +9,27 @@ import { api } from "@/lib/api";
 type Tab = "statement" | "pnl" | "history" | "unsettled" | "stake" | "rules" | "password" | "results";
 
 export default function ClientAccountPage() {
-  const { user, logout } = useAuthStore();
+  const router = useRouter();
+  const { user, logout, isAuthenticated, _hasHydrated, updateStakePreferences } = useAuthStore();
   const [activeTab, setActiveTab] = useState<Tab>("statement");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [profilePnl, setProfilePnl] = useState<number | null>(null);
 
+  // Auth guard
   useEffect(() => {
-    // Read query param if passed
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const tabParam = urlParams.get("tab") as Tab;
-      if (tabParam) setActiveTab(tabParam);
-    }
-  }, []);
+    if (_hasHydrated && !isAuthenticated) router.replace("/login");
+  }, [isAuthenticated, _hasHydrated, router]);
+
+  // Fetch P&L for profile card on mount
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    api.get("/client/profit-loss").then((res) => {
+      setProfilePnl(res.data.data?.netPnl ?? 0);
+    }).catch(() => setProfilePnl(0));
+  }, [isAuthenticated]);
+
+
 
   useEffect(() => {
     fetchTabData();
@@ -76,7 +85,8 @@ export default function ClientAccountPage() {
     try {
       const res = await api.put("/client/preferences/stakes", { stakes: stakeForm });
       setMsg({ type: "success", text: "Stake preferences updated!" });
-      useAuthStore.getState().user!.stakePreferences = res.data.data.stakePreferences;
+      // Use the store action — never mutate store state directly
+      updateStakePreferences(res.data.data.stakePreferences);
     } catch (err: any) {
       setMsg({ type: "error", text: err.response?.data?.error || "Error updating stakes." });
     }
@@ -102,7 +112,7 @@ export default function ClientAccountPage() {
         <div className="w-full md:w-72 flex-shrink-0">
           
           {/* Profile Card */}
-          <div className="text-white rounded-t-lg p-4" style={{ backgroundColor: "#015E6D" }}>
+          <div className="text-white rounded-t-lg p-4" style={{ backgroundColor: "var(--teal-dark)" }}>
             <div className="flex items-center gap-2 mb-4">
               <span className="text-yellow-400 text-lg">👤</span>
               <span className="font-bold">{user?.username} - (86)</span>
@@ -120,7 +130,7 @@ export default function ClientAccountPage() {
           </div>
 
           {/* Navigation Items */}
-          <div className="rounded-b-lg pb-4" style={{ backgroundColor: "#015E6D" }}>
+          <div className="rounded-b-lg pb-4" style={{ backgroundColor: "var(--teal-dark)" }}>
             {menuItems.map((item) => (
               <button
                 key={item.id}
@@ -139,8 +149,8 @@ export default function ClientAccountPage() {
         </div>
 
         {/* --- RIGHT CONTENT AREA --- */}
-        <div className="flex-1 bg-white rounded-lg shadow-md border border-slate-200 p-6">
-          <h2 className="text-xl font-bold text-slate-800 mb-6 uppercase tracking-wider border-b pb-2">
+        <div className="flex-1 rounded-lg shadow-md p-6" style={{ backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)" }}>
+          <h2 className="text-xl font-bold mb-6 uppercase tracking-wider pb-2" style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}>
             {menuItems.find(i => i.id === activeTab)?.label}
           </h2>
 
@@ -163,7 +173,7 @@ export default function ClientAccountPage() {
               {activeTab === "statement" && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-100 text-slate-700 uppercase text-xs">
+                    <thead style={{ backgroundColor: "var(--teal)", color: "#fff" }} className="text-xs uppercase">
                       <tr>
                         <th className="px-4 py-3">Date</th>
                         <th className="px-4 py-3">Description</th>
@@ -171,7 +181,7 @@ export default function ClientAccountPage() {
                         <th className="px-4 py-3 text-right">Balance</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200">
+                    <tbody style={{ borderTop: "1px solid var(--border)" }}>
                       {data?.map((tx: any) => (
                         <tr key={tx._id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
@@ -224,7 +234,7 @@ export default function ClientAccountPage() {
               {(activeTab === "history" || activeTab === "unsettled") && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left border-collapse border border-slate-200">
-                    <thead className="bg-[#00A5B5] text-white">
+                    <thead style={{ backgroundColor: "var(--teal)", color: "#fff" }}>
                       <tr>
                         <th className="px-3 py-2 border border-slate-200">Date</th>
                         <th className="px-3 py-2 border border-slate-200">Bet ID</th>
@@ -329,7 +339,7 @@ export default function ClientAccountPage() {
                     </button>
                   )}
 
-                  <button type="submit" className="w-full bg-[#015E6D] text-white py-3 rounded font-bold uppercase mt-6 hover:bg-[#014955] transition-colors">
+                  <button type="submit" className="w-full text-white py-3 rounded font-bold uppercase mt-6 transition-colors" style={{ backgroundColor: "var(--teal-dark)" }}>
                     Save Stakes
                   </button>
                 </form>
@@ -359,7 +369,7 @@ export default function ClientAccountPage() {
                       className="w-full border p-2 rounded focus:ring-1 focus:ring-teal-500 outline-none"
                     />
                   </div>
-                  <button type="submit" className="w-full bg-[#015E6D] text-white py-3 rounded font-bold uppercase mt-4 hover:bg-[#014955] transition-colors">
+                  <button type="submit" className="w-full text-white py-3 rounded font-bold uppercase mt-4 transition-colors" style={{ backgroundColor: "var(--teal-dark)" }}>
                     Change Password
                   </button>
                 </form>

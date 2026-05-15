@@ -19,19 +19,37 @@ import { useAuthStore } from "@/store/useAuthStore";
 
 export default function ClientCasinoPage() {
   const router = useRouter();
-  const { user, token, isAuthenticated } = useAuthStore();
+  const { user, token, isAuthenticated, _hasHydrated } = useAuthStore();
 
-  // Guard: redirect to login if the session has expired or the user
-  // navigated directly to this URL without being authenticated.
+  // Guard: only redirect once the persist middleware has finished reading
+  // localStorage. Without _hasHydrated, the redirect fires before the stored
+  // token is loaded, causing a flash-to-login on every page refresh.
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (_hasHydrated && !isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, _hasHydrated, router]);
 
-  // Render nothing while the redirect is in flight to avoid a flash of
-  // the layout before the navigation completes.
-  if (!isAuthenticated || !user) return null;
+  // Render a themed loading screen while the auth store hydrates from
+  // localStorage. This prevents the white-flash that occurs when the
+  // component returns null before Zustand's persist middleware has rehydrated.
+  // The background colour matches var(--bg-primary) so there is no jarring
+  // contrast against the surrounding DashboardLayout.
+  if (!isAuthenticated || !user) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "var(--bg-primary)" }}
+      >
+        <div
+          className="text-sm tracking-widest uppercase opacity-50"
+          style={{ color: "var(--text-primary)" }}
+        >
+          Loading Casino...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DashboardLayout

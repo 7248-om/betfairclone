@@ -198,11 +198,11 @@ const getBetHistory = async (req, res) => {
     // Base query: settled bets for this user
     const query = {
       user: req.user._id,
-      status: { $in: ["WON", "LOST", "VOID"] },
+      status: { $in: ["WON", "LOST", "RETURNED", "CASHED_OUT", "VOID"] },
     };
 
     // Narrow to a specific status if provided
-    if (req.query.status && ["WON", "LOST", "VOID"].includes(req.query.status)) {
+    if (req.query.status && ["WON", "LOST", "RETURNED", "CASHED_OUT", "VOID"].includes(req.query.status)) {
       query.status = req.query.status;
     }
 
@@ -254,6 +254,9 @@ const getUnsettledBets = async (req, res) => {
       status: "OPEN",
     })
       .sort({ createdAt: -1 })
+      // Hard limit: prevents unbounded response if many OPEN bets accumulate
+      // due to a data integrity issue. Real-time open bets rarely exceed 50.
+      .limit(200)
       .lean();
 
     // Compute total exposure (total amount at risk)

@@ -17,9 +17,15 @@ interface NavbarProps {
 }
 
 const badgeStyles: Record<AccountType, string> = {
-  MAIN:   "bg-yellow-500 text-black",
-  MASTER: "bg-purple-500 text-white",
-  CLIENT: "bg-teal-500 text-white",
+  MAIN:   "font-bold text-xs px-2 py-0.5 rounded-sm",
+  MASTER: "font-bold text-xs px-2 py-0.5 rounded-sm",
+  CLIENT: "font-bold text-xs px-2 py-0.5 rounded-sm",
+};
+
+const badgeInlineStyles: Record<AccountType, React.CSSProperties> = {
+  MAIN:   { backgroundColor: "var(--warning)",  color: "#000" },
+  MASTER: { backgroundColor: "#a855f7",          color: "#fff" },
+  CLIENT: { backgroundColor: "var(--teal)",      color: "#fff" },
 };
 
 const badgeLabels: Record<AccountType, string> = {
@@ -51,7 +57,7 @@ export default function Navbar({ accountType, username, balance, exposure = 0, o
             <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
           </svg>
           <span className="text-sm font-medium text-white hidden sm:block">{username}</span>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-sm ${badgeStyles[accountType]}`}>
+          <span className={badgeStyles[accountType]} style={badgeInlineStyles[accountType]}>
             {badgeLabels[accountType]}
           </span>
         </div>
@@ -67,7 +73,7 @@ export default function Navbar({ accountType, username, balance, exposure = 0, o
         {/* Balance */}
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold cursor-default"
-          style={{ backgroundColor: "#ffc107", color: "#000" }}
+          style={{ backgroundColor: "var(--warning)", color: "#000" }}
         >
           <svg className="w-3 h-3 opacity-80" fill="currentColor" viewBox="0 0 20 20">
             <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" />

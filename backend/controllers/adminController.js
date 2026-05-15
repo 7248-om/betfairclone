@@ -151,7 +151,10 @@ const createMaster = async (req, res) => {
       session.endSession();
       return res.status(400).json({ error: "initialBalance cannot be negative." });
     }
-    if (initialBalance > 0 && req.user.balance < initialBalance) {
+    // FIX: Use a fresh balance read INSIDE the session, not req.user.balance
+    // (which was set at auth-middleware time and may be stale for concurrent requests).
+    const adminUser = await User.findById(req.user._id).session(session);
+    if (initialBalance > 0 && adminUser.balance < initialBalance) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({ error: "Insufficient balance to fund this master account." });
@@ -186,12 +189,18 @@ const createMaster = async (req, res) => {
 
     // ---- If initial balance provided: deduct from MAIN + create ledger entries ----
     if (initialBalance > 0) {
-      // Deduct from MAIN
-      const updatedAdmin = await User.findByIdAndUpdate(
-        req.user._id,
+      // Atomic debit with $gte guard — prevents concurrent createMaster requests
+      // from driving the MAIN balance negative (the pre-check above can be TOCTOU'd).
+      const updatedAdmin = await User.findOneAndUpdate(
+        { _id: req.user._id, balance: { $gte: initialBalance } },
         { $inc: { balance: -initialBalance } },
         { new: true, session }
       );
+      if (!updatedAdmin) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ error: "Insufficient balance (concurrent update)." });
+      }
 
       // MAIN outbound transaction
       await Transaction.create(

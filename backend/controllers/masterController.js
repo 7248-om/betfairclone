@@ -278,8 +278,7 @@ const getClientBets = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("match", "teams sport startTime status")
-        .lean(),
+        .lean(), // removed stale .populate("match") — no match field in BetConstruct schema
       Bet.countDocuments(query),
     ]);
 
@@ -306,75 +305,67 @@ const getClientBets = async (req, res) => {
  */
 const getMyClients = async (req, res) => {
   try {
-    // 1. Fetch all child clients
-    const clients = await User.find({
-      createdBy: req.user._id,
-      accountType: "CLIENT",
-    })
-      .select("username balance isActive createdAt")
-      .lean();
-
-    // 2. Fetch aggregate stats for each client in parallel
-    const enhancedClients = await Promise.all(
-      clients.map(async (client) => {
-        // Active bets (OPEN)
-        const activeBets = await Bet.countDocuments({
-          user: client._id,
-          status: "OPEN",
-        });
-
-        // P&L calculation
-        const pnlResult = await Transaction.aggregate([
-          { $match: { user: client._id } },
-          {
-            $group: {
-              _id: null,
-              totalStaked: {
-                $sum: { $cond: [{ $eq: ["$type", "BET_PLACED"] }, "$amount", 0] },
-              },
-              totalWinnings: {
-                $sum: { $cond: [{ $eq: ["$type", "BET_WON"] }, "$amount", 0] },
-              },
-              totalRefunds: {
-                $sum: { $cond: [{ $eq: ["$type", "BET_REFUND"] }, "$amount", 0] },
+    // Single aggregation pipeline replaces N+1 pattern (previously: 1 find +
+    // 2 DB calls per client = 2N+1 total). With 50 clients that was 101 queries.
+    const result = await User.aggregate([
+      { $match: { createdBy: req.user._id, accountType: "CLIENT" } },
+      {
+        $lookup: {
+          from: "bets",
+          let: { uid: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ["$user", "$$uid"] }, { $eq: ["$status", "OPEN"] }] } } },
+            { $count: "count" },
+          ],
+          as: "activeBetsArr",
+        },
+      },
+      {
+        $lookup: {
+          from: "transactions",
+          let: { uid: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+            {
+              $group: {
+                _id: null,
+                totalStaked:   { $sum: { $cond: [{ $eq: ["$type", "BET_PLACED"] },  "$amount", 0] } },
+                totalWinnings: { $sum: { $cond: [{ $eq: ["$type", "BET_WON"] },     "$amount", 0] } },
+                totalRefunds:  { $sum: { $cond: [{ $eq: ["$type", "BET_REFUND"] },  "$amount", 0] } },
               },
             },
-          },
-          {
-            $addFields: {
-              netPnl: {
-                $subtract: [
-                  { $add: ["$totalWinnings", "$totalRefunds"] },
-                  "$totalStaked",
-                ],
-              },
-            },
-          },
-        ]);
-
-        const netPnl = pnlResult.length > 0 ? pnlResult[0].netPnl : 0;
-
-        return {
-          id: client._id,
-          username: client.username,
-          balance: client.balance,
-          status: client.isActive ? "ACTIVE" : "SUSPENDED",
-          activeBets,
-          pl: netPnl,
-          // Format date slightly
-          joinedAt: new Date(client.createdAt).toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "2-digit",
-          }),
-        };
-      })
-    );
+            { $addFields: { netPnl: { $subtract: [{ $add: ["$totalWinnings", "$totalRefunds"] }, "$totalStaked"] } } },
+          ],
+          as: "pnlArr",
+        },
+      },
+      {
+        $project: {
+          username:  1,
+          balance:   1,
+          isActive:  1,
+          createdAt: 1,
+          activeBets: { $ifNull: [{ $arrayElemAt: ["$activeBetsArr.count", 0] }, 0] },
+          pl:         { $ifNull: [{ $arrayElemAt: ["$pnlArr.netPnl",        0] }, 0] },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+    ]);
 
     return res.status(200).json({
       success: true,
-      count: enhancedClients.length,
-      data: enhancedClients,
+      count:   result.length,
+      data: result.map((c) => ({
+        id:         c._id,
+        username:   c.username,
+        balance:    c.balance,
+        status:     c.isActive ? "ACTIVE" : "SUSPENDED",
+        activeBets: c.activeBets,
+        pl:         c.pl,
+        joinedAt:   new Date(c.createdAt).toLocaleDateString("en-GB", {
+          day: "2-digit", month: "short", year: "2-digit",
+        }),
+      })),
     });
   } catch (err) {
     console.error("[getMyClients]", err);
@@ -426,20 +417,32 @@ const transferCoins = async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance for this transfer." });
     }
 
-    // Deduct from Master
-    master.balance -= amount;
-    await master.save({ session });
+    // Atomic debit with $gte guard — prevents concurrent transfers from the same
+    // master driving their balance negative if the balance check above is TOCTOU'd.
+    const updatedMaster = await User.findOneAndUpdate(
+      { _id: master._id, balance: { $gte: amount } },
+      { $inc: { balance: -amount } },
+      { new: true, session }
+    );
+    if (!updatedMaster) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ error: "Insufficient balance (concurrent update)." });
+    }
 
-    // Add to Client
-    client.balance += amount;
-    await client.save({ session });
+    // Credit client
+    const updatedClient = await User.findOneAndUpdate(
+      { _id: client._id },
+      { $inc: { balance: amount } },
+      { new: true, session }
+    );
 
     // Ledger: Master Out
     await Transaction.create([{
       user: master._id,
       type: "TRANSFER_OUT",
       amount,
-      runningBalance: master.balance,
+      runningBalance: updatedMaster.balance,
       description: `Transferred to client: ${client.username}`,
       referenceId: client._id,
       referenceModel: "User",
@@ -450,7 +453,7 @@ const transferCoins = async (req, res) => {
       user: client._id,
       type: "TRANSFER_IN",
       amount,
-      runningBalance: client.balance,
+      runningBalance: updatedClient.balance,
       description: `Received from agent: ${master.username}`,
       referenceId: master._id,
       referenceModel: "User",
@@ -462,7 +465,7 @@ const transferCoins = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `Successfully transferred ${amount} VC to ${client.username}`,
-      newBalance: master.balance
+      newBalance: updatedMaster.balance
     });
   } catch (err) {
     await session.abortTransaction();
